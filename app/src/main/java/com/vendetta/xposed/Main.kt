@@ -34,6 +34,53 @@ class Main : IXposedHookZygoteInit, IXposedHookLoadPackage {
     }
 
     override fun handleLoadPackage(param: XC_LoadPackage.LoadPackageParam) {
+        val themeModule = param.classLoader.loadClass("com.discord.theme.ThemeModule")
+        val darkTheme = param.classLoader.loadClass("com.discord.theme.DarkTheme")
+
+        XposedBridge.hookMethod(
+            themeModule.getDeclaredMethod("updateTheme", String::class.java),
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[0] == "dark" || param.args[0] == "light") {
+                        return
+                    }
+
+                    val json = try { 
+                        Json.decodeFromString<Map<String, UInt>>(param.args[0] as String)
+                    } catch (_: Exception) {
+                        XposedBridge.log("Failed to parse JSON")
+                        return
+                    }
+
+                    // iterate the object
+                    for ((key, value) in json) {
+                        val method = "get" + key.split("_").joinToString("") { it.toLowerCase().replaceFirstChar { it.uppercase() } };
+
+                        XposedBridge.log("Hooking method $method -> $value")
+                        XposedBridge.hookMethod(
+                            darkTheme.getDeclaredMethod(method),
+                            object : XC_MethodHook() {
+                                override fun beforeHookedMethod(param: MethodHookParam) {
+                                    param.result = value.toInt()
+                                }
+                            }
+                        )
+                    }
+
+                    param.args[0] = "dark"
+                }
+            }
+        )
+
+        // XposedBridge.hookMethod(
+        //         darkTheme.getDeclaredMethod(convertSnakeToCamel("TEXT_NORMAL")),
+        //         object : XC_MethodHook() {
+        //             override fun beforeHookedMethod(param: MethodHookParam) {
+        //                 param.result = 0xFFFF0000.toInt()
+        //             }
+        //         }
+        // )
+
         val catalystInstanceImpl = param.classLoader.loadClass("com.facebook.react.bridge.CatalystInstanceImpl")
 
         val loadScriptFromAssets = catalystInstanceImpl.getDeclaredMethod(
